@@ -1,42 +1,48 @@
-# TrueNAS SCALE Upgrade Guide for HP MicroServer Gen8
+# TrueNAS SCALE upgrade guide for HP MicroServer Gen8
 
-## Overview
+## overview
 
-This guide documents the process of upgrading TrueNAS SCALE on an HP MicroServer Gen8 with a custom boot configuration. The server uses a MicroSD card with GRUB in the MBR to chainload to an SSD on the ODD SATA port, which the BIOS cannot directly boot from.
+this guide documents the process of upgrading TrueNAS SCALE on an HP MicroServer Gen8 with a custom boot configuration. the server uses a MicroSD card with GRUB in the MBR to chainload to an SSD on the ODD SATA port, which the BIOS cannot directly boot from.
 
-## Hardware Configuration
+## additional documentation
 
-- **Server**: HP MicroServer Gen8
-- **Hostname**: bender
-- **Boot Device**: MicroSD card (~60GB) with GRUB MBR
-- **System Drive**: SSD on ODD SATA port (not BIOS-bootable)
-- **Data Pool**: 4x 18TB WD drives in RAIDZ1 named "BIG"
+| document | description |
+|----------|-------------|
+| [DEBIAN_PACKAGES.md](DEBIAN_PACKAGES.md) | how to install Debian packages using `apt` on TrueNAS SCALE 25.10.1 and later versions |
 
-## Boot Chain
+## hardware configuration
+
+- **server**: HP MicroServer Gen8
+- **hostname**: bender
+- **boot device**: MicroSD card (~60GB) with GRUB MBR
+- **system drive**: SSD on ODD SATA port (not BIOS-bootable)
+- **data pool**: 4x 18TB WD drives in RAIDZ1 named "BIG"
+
+## boot chain
 
 1. BIOS boots from MicroSD MBR (only bootable device BIOS recognizes)
 2. MicroSD GRUB chainloads to SSD on ODD SATA port
 3. SSD contains actual TrueNAS installation
 
-## The Problem
+## the problem
 
-When TrueNAS updates:
-- It creates a new boot environment (e.g., `ROOT/25.10.1`)
-- It updates GRUB on the SSD
-- It does NOT update the MicroSD GRUB config
+when TrueNAS updates:
+- it creates a new boot environment (e.g., `ROOT/25.10.1`)
+- it updates GRUB on the SSD
+- it does NOT update the MicroSD GRUB config
 - MicroSD GRUB still references old boot environment → boot fails
 
-## Pre-Upgrade Steps
+## pre-upgrade steps
 
-### 1. Identify Your MicroSD Device
+### 1. identify your MicroSD device
 
 ```bash
 lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL,TRAN
 ```
 
-Look for the MicroSD card - in this case it was `sde` (59.5GB, "Internal SD-CARD").
+look for the MicroSD card - in this case it was `sde` (59.5GB, "Internal SD-CARD").
 
-### 2. Backup Current MicroSD GRUB Config
+### 2. backup current MicroSD GRUB config
 
 ```bash
 mkdir -p /mnt/microsd
@@ -45,12 +51,12 @@ cp /mnt/microsd/boot/grub/grub.cfg ~/grub-microsd-backup-$(date +%Y%m%d).cfg
 umount /mnt/microsd
 ```
 
-### 3. Download TrueNAS Configuration
+### 3. download TrueNAS configuration
 
-Via Web UI:
+via web UI:
 - **System** → **General** → **Manage Configuration** → **Download File**
 
-### 4. Save Pool Metadata (Optional but Recommended)
+### 4. save pool metadata (optional but recommended)
 
 ```bash
 zpool status BIG > ~/pool-status-backup.txt
@@ -61,55 +67,55 @@ zpool get all BIG > ~/pool-properties-backup.txt
 scp root@bender:~/*backup.txt .
 ```
 
-### 5. Verify iLO/Console Access
+### 5. verify iLO/console access
 
-Ensure you have working HP iLO access as you'll need it after reboot.
+ensure you have working HP iLO access as you'll need it after reboot.
 
-## Upgrade Process
+## upgrade process
 
-### Step 1: Apply the Update
+### step 1: apply the update
 
-Via Web UI:
-1. Go to **System** → **Update**
-2. Click **Download Updates** (if not already downloaded)
-3. Click **Apply Pending Update**
-4. System will install and automatically reboot
-5. **Boot will fail** (this is expected)
+via web UI:
+1. go to **System** → **Update**
+2. click **Download Updates** (if not already downloaded)
+3. click **Apply Pending Update**
+4. system will install and automatically reboot
+5. **boot will fail** (this is expected)
 
-### Step 2: Manual Boot via iLO Console
+### step 2: manual boot via iLO console
 
-When GRUB menu appears (showing old version "TrueNAS Scale GNU/Linux 24.04.2"):
+when GRUB menu appears (showing old version "TrueNAS Scale GNU/Linux 24.04.2"):
 
-1. **Press `e`** to edit the boot entry
-2. **Locate and modify** these lines:
+1. **press `e`** to edit the boot entry
+2. **locate and modify** these lines:
 
-Find:
+find:
 ```
 linux /ROOT/24.04.2@/boot/vmlinuz-6.6.32-production+truenas root=ZFS=boot-pool/ROOT/24.04.2 ...
 ```
 
-Change to:
+change to:
 ```
 linux /ROOT/25.10.1@/boot/vmlinuz-6.12.33-production+truenas root=ZFS=boot-pool/ROOT/25.10.1 ...
 ```
 
-Find:
+find:
 ```
 initrd /ROOT/24.04.2@/boot/initrd.img-6.6.32-production+truenas
 ```
 
-Change to:
+change to:
 ```
 initrd /ROOT/25.10.1@/boot/initrd.img-6.12.33-production+truenas
 ```
 
-3. **Press `Ctrl+X`** or `F10` to boot
+3. **press `Ctrl+X`** or `F10` to boot
 
-### Step 3: Permanently Fix MicroSD GRUB
+### step 3: permanently fix MicroSD GRUB
 
-Once the system boots successfully:
+once the system boots successfully:
 
-**IMPORTANT**: Device names may have changed after reboot. Find your MicroSD:
+**IMPORTANT**: device names may have changed after reboot. find your MicroSD:
 
 ```bash
 # Check current device mapping
@@ -119,9 +125,9 @@ lsblk -o NAME,SIZE,TYPE,FSTYPE
 blkid | grep ext4 | grep -v boot-pool
 ```
 
-In our case, the MicroSD shifted from `sde1` to `sdf1` after reboot.
+in our case, the MicroSD shifted from `sde1` to `sdf1` after reboot.
 
-Mount and fix the configuration:
+mount and fix the configuration:
 
 ```bash
 # Mount MicroSD (was sdf1 after reboot)
@@ -146,17 +152,17 @@ sync
 umount /mnt/microsd
 ```
 
-### Step 4: Test Automatic Boot
+### step 4: test automatic boot
 
 ```bash
 reboot
 ```
 
-System should now boot automatically without manual intervention.
+system should now boot automatically without manual intervention.
 
-### Step 5: Verify Upgrade
+### step 5: verify upgrade
 
-After successful boot:
+after successful boot:
 
 ```bash
 # Check version
@@ -172,45 +178,45 @@ zpool status BIG
 zfs list -r boot-pool/ROOT
 ```
 
-## Version-Specific Details
+## version-specific details
 
 ### Dragonfish 24.04.2 → Goldeye 25.10.1
 
-- **Old Kernel**: 6.6.32-production+truenas
-- **New Kernel**: 6.12.33-production+truenas
-- **Old Boot Environment**: ROOT/24.04.2
-- **New Boot Environment**: ROOT/25.10.1
+- **old kernel**: 6.6.32-production+truenas
+- **new kernel**: 6.12.33-production+truenas
+- **old boot environment**: ROOT/24.04.2
+- **new boot environment**: ROOT/25.10.1
 
-## Troubleshooting
+## troubleshooting
 
-### Boot Fails After Update
+### boot fails after update
 
-**Symptom**: System doesn't boot after update
-**Solution**: Use iLO console to manually edit GRUB (Step 2 above)
+**symptom**: system doesn't boot after update
+**solution**: use iLO console to manually edit GRUB (step 2 above)
 
-### Can't Find MicroSD After Reboot
+### can't find MicroSD after reboot
 
-**Symptom**: Device names changed, can't find MicroSD
-**Solution**: 
+**symptom**: device names changed, can't find MicroSD
+**solution**: 
 ```bash
 lsblk -o NAME,SIZE,FSTYPE
 blkid | grep ext4
 ```
-Look for the small (~128M) ext4 partition.
+look for the small (~128M) ext4 partition.
 
-### Wrong Kernel Version
+### wrong kernel version
 
-**Symptom**: Kernel version in GRUB doesn't match
-**Solution**: Check actual kernel version on SSD:
+**symptom**: kernel version in GRUB doesn't match
+**solution**: check actual kernel version on SSD:
 ```bash
 ls /boot/ROOT/25.10.1@/boot/vmlinuz-*
 ```
-Use the exact filename shown.
+use the exact filename shown.
 
-### Pool Won't Import
+### pool won't import
 
-**Symptom**: BIG pool doesn't show up after upgrade
-**Solution**:
+**symptom**: BIG pool doesn't show up after upgrade
+**solution**:
 ```bash
 # Manually import pool
 zpool import BIG
@@ -219,26 +225,26 @@ zpool import BIG
 zpool import
 ```
 
-## Important Notes
+## important notes
 
-- **No need to run `update-grub`** - you're only editing the config file, not reinstalling GRUB
-- **Device names (`/dev/sdX`) may change** between reboots, but ZFS uses UUIDs so pools remain accessible
-- **Your data pool is separate** from the boot device and won't be touched during upgrade
-- **Keep the old boot environment** - don't delete ROOT/24.04.2 until you've verified 25.10.1 is stable
+- **no need to run `update-grub`** - you're only editing the config file, not reinstalling GRUB
+- **device names (`/dev/sdX`) may change** between reboots, but ZFS uses UUIDs so pools remain accessible
+- **your data pool is separate** from the boot device and won't be touched during upgrade
+- **keep the old boot environment** - don't delete ROOT/24.04.2 until you've verified 25.10.1 is stable
 
-## Future Upgrades
+## future upgrades
 
-For future TrueNAS upgrades, repeat this process:
+for future TrueNAS upgrades, repeat this process:
 
-1. Apply update via web UI
-2. Boot fails (expected)
-3. Manual boot via iLO console with new version numbers
-4. Fix MicroSD GRUB with new paths
-5. Reboot to verify
+1. apply update via web UI
+2. boot fails (expected)
+3. manual boot via iLO console with new version numbers
+4. fix MicroSD GRUB with new paths
+5. reboot to verify
 
-## Automation Script
+## automation script
 
-For future upgrades, you can create a script to automate the MicroSD GRUB fix. Save this as `fix-microsd-grub.sh`:
+for future upgrades, you can create a script to automate the MicroSD GRUB fix. save this as `fix-microsd-grub.sh`:
 
 ```bash
 #!/bin/bash
@@ -285,24 +291,24 @@ umount /mnt/microsd
 echo "Done! MicroSD GRUB updated. Safe to reboot."
 ```
 
-Usage:
+usage:
 ```bash
 chmod +x fix-microsd-grub.sh
 ./fix-microsd-grub.sh 24.04.2 25.10.1 6.6.32 6.12.33
 ```
 
-## Additional Resources
+## additional resources
 
 - [TrueNAS Documentation](https://www.truenas.com/docs/)
 - [HP MicroServer Gen8 Specifications](https://support.hpe.com/hpesc/public/docDisplay?docId=c03793258)
 - [ZFS Feature Flags](https://openzfs.github.io/openzfs-docs/Basic%20Concepts/Feature%20Flags.html)
 
-## Author Notes
+## author notes
 
-This procedure was tested on:
+this procedure was tested on:
 - HP MicroServer Gen8
 - TrueNAS SCALE Dragonfish 24.04.2 → Goldeye 25.10.1
 - 4x 18TB WD drives in RAIDZ1
-- Custom boot configuration with MicroSD GRUB MBR
+- custom boot configuration with MicroSD GRUB MBR
 
-Your mileage may vary with different hardware configurations.
+your mileage may vary with different hardware configurations.
